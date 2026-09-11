@@ -1,0 +1,37 @@
+[project]
+name = "mcp-server"
+version = "0.1.0"
+description = "A general-purpose MCP server, deployable to Cloud Run."
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.1,<3",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+mcp-server = "mcp_server.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_server"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
