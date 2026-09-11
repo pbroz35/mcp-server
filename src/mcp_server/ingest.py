@@ -1,7 +1,6 @@
 """Turning a file into searchable chunks: extract -> chunk -> embed.
 
-Kept separate from the tool and HTTP layers so the pipeline can be tested
-without a database, a network, or an MCP client.
+Separate from the tool and HTTP layers so it tests without a database or network.
 """
 
 import hashlib
@@ -23,15 +22,14 @@ _client: AsyncOpenAI | None = None
 
 
 def _get_encoder():
-    """Load the tokenizer once. tiktoken fetches its vocabulary on first use
-    and caches it on disk, so this is slow exactly once per container."""
+    """Load the tokenizer once; tiktoken fetches its vocabulary on first use."""
     global _encoder
     if _encoder is None:
         try:
             _encoder = tiktoken.encoding_for_model(settings.embedding_model)
         except KeyError:
-            # Unknown model name (a newer embedding model, or a custom one):
-            # cl100k_base is the right family and only affects chunk sizing.
+            # Unknown model name; cl100k_base is the right family and only
+            # affects chunk sizing.
             _encoder = tiktoken.get_encoding("cl100k_base")
     return _encoder
 
@@ -58,11 +56,8 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def extract_pdf(data: bytes) -> list[tuple[int, str]]:
-    """Extract text per page. Returns [(page_number, text), ...], 1-indexed.
-
-    Page numbers are carried all the way through to search results so a
-    citation can say "page 34" rather than pointing at an opaque chunk id.
-    """
+    """Extract text per page as [(page_number, text), ...], 1-indexed. Page
+    numbers reach search results so a citation can name a page."""
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
@@ -79,12 +74,8 @@ def extract_pdf(data: bytes) -> list[tuple[int, str]]:
 
 
 def clean_text(text: str) -> str:
-    """Normalize extracted text.
-
-    PDF extraction produces hyphenated line breaks, hard-wrapped paragraphs,
-    and runs of whitespace. Left alone these poison both the embedding and the
-    keyword index: "rev-\\nenue" matches neither "revenue" nor anything else.
-    """
+    """Normalize extracted text. PDF extraction leaves hyphenated line breaks
+    and hard wrapping, which poison both the embedding and the keyword index."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)      # de-hyphenate across lines
     text = re.sub(r"(?<![\n.])\n(?![\n•\-*\d])", " ", text)  # unwrap soft breaks
@@ -101,12 +92,8 @@ def chunk_text(
     max_tokens: int | None = None,
     overlap_tokens: int | None = None,
 ) -> list[Chunk]:
-    """Split text into token-bounded chunks on paragraph boundaries.
-
-    Splitting on paragraphs first and only falling back to a hard token cut for
-    oversized paragraphs keeps semantic units intact — a chunk that ends
-    mid-sentence embeds poorly and reads badly when quoted back as a citation.
-    """
+    """Split text into token-bounded chunks on paragraph boundaries. A chunk
+    ending mid-sentence embeds poorly and reads badly when quoted."""
     max_tokens = max_tokens or settings.chunk_tokens
     overlap_tokens = overlap_tokens or settings.chunk_overlap_tokens
     enc = _get_encoder()
@@ -129,8 +116,8 @@ def chunk_text(
         tokens = len(enc.encode(para))
 
         if tokens > max_tokens:
-            # A single oversized paragraph (a table, a dense legal block):
-            # flush what we have, then cut it into overlapping windows.
+            # An oversized paragraph (a table, a dense legal block) has to be
+            # cut into overlapping windows.
             flush()
             ids = enc.encode(para)
             step = max(max_tokens - overlap_tokens, 1)
@@ -172,8 +159,7 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         return []
     client = _get_client()
     vectors: list[list[float]] = []
-    # The API caps how much it accepts per request; batching also bounds the
-    # blast radius of a retry.
+    # The API caps input per request, and batching bounds a retry's cost.
     batch_size = 96
     for start in range(0, len(texts), batch_size):
         batch = texts[start : start + batch_size]
@@ -182,9 +168,8 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
             input=batch,
             dimensions=settings.embedding_dimensions,
         )
-        # The API documents order preservation, but sorting by index makes that
-        # an assertion rather than an assumption — a silent misalignment here
-        # would attach every vector to the wrong chunk.
+        # Sort by index rather than trusting order: a misalignment here would
+        # attach every vector to the wrong chunk, silently.
         vectors.extend(item.embedding for item in sorted(response.data, key=lambda d: d.index))
     return vectors
 

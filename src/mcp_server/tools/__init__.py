@@ -1,8 +1,5 @@
-"""Capability registration.
-
-Add a module next to `web.py`, give it a `register(mcp)` function, and list it
-here. Keeping registration explicit (rather than auto-importing) means an
-import error surfaces at startup instead of silently dropping a tool.
+"""Capability registration: add a module next to `web.py` with a `register(mcp)`
+function and list it here. Explicit beats auto-import, which drops tools silently.
 """
 
 from mcp.server.mcpserver import MCPServer

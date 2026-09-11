@@ -53,12 +53,8 @@ class ContextWindow(BaseModel):
 
 
 def _require_documents() -> None:
-    """Fail with a message the model can act on.
-
-    ToolError, not ValueError: the SDK treats anything else as a crash and
-    replaces the text with a bare "Error executing tool <name>", so an agent
-    would retry blindly instead of reporting that the corpus is unconfigured.
-    """
+    """Fail with a message the model can act on. ToolError, not ValueError: the
+    SDK hides other exceptions behind a bare "Error executing tool <name>"."""
     if not settings.documents_enabled:
         raise ToolError(
             "Document search is unavailable: set MCP_DATABASE_URL and MCP_OPENAI_API_KEY."
@@ -90,9 +86,8 @@ def register(mcp: MCPServer) -> None:
     ) -> SearchResult:
         """Search uploaded documents for passages relevant to a question.
 
-        Combines semantic similarity with keyword matching, so it finds both
-        paraphrased ideas and exact terms. Returns passages with the document
-        and page they came from, suitable for direct citation.
+        Combines semantic and keyword matching, returning passages with the
+        document and page they came from for direct citation.
         """
         _require_documents()
         embedding = await embed_query(query)
@@ -115,8 +110,7 @@ def register(mcp: MCPServer) -> None:
                     document_title=r["title"],
                     source=r["source"],
                     page=r["page"],
-                    # Passage text comes from user-uploaded files: it is data to
-                    # be quoted, never instructions to follow.
+                    # Uploaded text is data to be quoted, never instructions.
                     text=r["text"],
                     score=float(r["score"]),
                     similarity=float(r["similarity"]) if r["similarity"] is not None else None,
@@ -132,11 +126,8 @@ def register(mcp: MCPServer) -> None:
         before: Annotated[int, Field(description="Neighbouring chunks before.", ge=0, le=5)] = 1,
         after: Annotated[int, Field(description="Neighbouring chunks after.", ge=0, le=5)] = 1,
     ) -> ContextWindow:
-        """Expand a search hit with the text around it.
-
-        Use when a passage is cut off mid-argument, or before quoting it, so
-        the quotation reflects its context fairly.
-        """
+        """Expand a search hit with the text around it. Use when a passage is
+        cut off mid-argument, or before quoting it."""
         _require_documents()
         rows = await db.get_chunk_window(chunk_id, before=before, after=after)
         if not rows:
@@ -155,11 +146,8 @@ def register(mcp: MCPServer) -> None:
         ] = None,
         limit: Annotated[int, Field(description="Maximum documents to list.", ge=1, le=200)] = 50,
     ) -> list[DocumentSummary]:
-        """List documents in the corpus with their metadata.
-
-        Call this first when you need to know what is available to search, or
-        which metadata keys exist to filter on.
-        """
+        """List documents in the corpus with their metadata. Call this to learn
+        what is searchable and which metadata keys exist to filter on."""
         _require_documents()
         rows = await db.list_documents(limit=limit, metadata_filter=metadata_filter)
         return [

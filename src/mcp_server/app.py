@@ -2,8 +2,7 @@
 
     uvicorn mcp_server.app:app --host 0.0.0.0 --port 8080
 
-MCP clients connect to /mcp. Documents are uploaded to POST /documents.
-/health is unauthenticated, for Cloud Run probes; everything else needs the token.
+MCP clients use /mcp, uploads POST to /documents, and /health is open for probes.
 """
 
 import logging
@@ -24,41 +23,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# NOT /healthz: Google Frontend intercepts that exact path on *.run.app and
-# returns its own 404 without ever reaching the container.
+# NOT /healthz: Google Frontend intercepts that exact path on *.run.app.
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "status": "ok",
             "server": settings.server_name,
-            # Which capabilities are actually live, so a misconfigured deploy is
-            # visible from the probe instead of only when a tool call fails.
+            # Surface live capabilities, so a misconfigured deploy shows up in
+            # the probe rather than in a failing tool call.
             "documents": settings.documents_enabled,
             "web_search": settings.web_search_enabled,
         }
     )
 
 
-# Uploads go through the SDK's custom-route hook, which places them on the same
-# Starlette app as /mcp — and therefore behind the same bearer-token middleware.
+# Registered on the same Starlette app as /mcp, so uploads sit behind the same
+# bearer-token middleware.
 mcp.custom_route("/documents", methods=["POST"])(upload_document)
 
 
 def create_app():
-    # The SDK builds the Starlette app, including the session-manager lifespan
-    # the streamable transport needs — extend that app, don't wrap it in a new
-    # one, or the lifespan never runs.
-    #
-    # stateless_http=True: every request is self-contained, so Cloud Run can
-    # scale to N instances without sticky sessions. Set it False only if you
-    # add state that must survive between requests on one connection.
-    #
-    # host is passed through only to decide DNS-rebinding defaults; uvicorn
-    # does the actual binding.
+    # Extend the SDK's app rather than wrapping it: it carries the session
+    # manager's lifespan, which never runs if mounted inside a new app.
     app = mcp.streamable_http_app(
         streamable_http_path="/mcp",
+        # Lets Cloud Run scale without sticky sessions.
         stateless_http=True,
+        # Only selects DNS-rebinding defaults; uvicorn does the binding.
         host="0.0.0.0",
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=bool(settings.allowed_hosts_list),

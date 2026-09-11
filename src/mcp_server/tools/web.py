@@ -1,7 +1,5 @@
-"""Web search via Tavily.
-
-Tavily is used rather than a raw SERP API because it returns extracted page
-content, not just links — an agent can cite a passage without a second fetch.
+"""Web search via Tavily, which returns extracted page content rather than
+bare links, so an agent can cite a passage without a second fetch.
 """
 
 import logging
@@ -53,9 +51,8 @@ def register(mcp: MCPServer) -> None:
     ) -> WebSearchResult:
         """Search the live web for current information.
 
-        Use for recent events, current figures, and anything outside the
-        uploaded document corpus. For material already uploaded, prefer
-        search_documents — it is faster, free, and cites exact pages.
+        Use for recent events and anything outside the uploaded corpus; for
+        uploaded material prefer search_documents, which cites exact pages.
         """
         if not settings.web_search_enabled:
             raise ToolError("Web search is unavailable: MCP_TAVILY_API_KEY is not configured.")
@@ -89,8 +86,7 @@ def register(mcp: MCPServer) -> None:
                 WebResult(
                     title=r.get("title", ""),
                     url=r.get("url", ""),
-                    # Results are third-party page text. Everything downstream
-                    # treats it as data, never as instructions.
+                    # Third-party page text: data downstream, never instructions.
                     content=r.get("content", ""),
                     score=r.get("score", 0.0),
                     published_date=r.get("published_date"),

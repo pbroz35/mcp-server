@@ -1,12 +1,7 @@
 """HTTP upload endpoint for adding documents to the corpus.
 
-Uploads are an HTTP route rather than an MCP tool on purpose: MCP tool
-arguments are JSON, so a PDF would have to be base64-encoded into the model's
-context — expensive, size-limited, and pointless, since a human is doing the
-uploading, not the model. The model's job starts after ingestion, at
-search_documents.
-
-The route sits behind the same bearer-token middleware as /mcp.
+An HTTP route rather than an MCP tool: tool arguments are JSON, so a PDF would
+have to be base64-encoded through the model's context to reach the database.
 """
 
 import json

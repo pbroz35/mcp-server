@@ -21,52 +21,39 @@ class Settings(BaseSettings):
     """Name advertised to MCP clients during initialization."""
 
     auth_token: str = ""
-    """Shared secret clients send as `Authorization: Bearer <token>`.
-
-    Empty disables auth. Keep it empty only for local/stdio use — an
-    unauthenticated public service exposes every tool to the internet.
-    """
+    """Shared secret sent as `Authorization: Bearer <token>`. Empty disables
+    auth, which is safe only for local stdio use."""
 
     port: int = Field(default=8080, validation_alias="PORT")
 
     log_level: str = "info"
 
     allowed_hosts: str = ""
-    """Comma-separated Host header allowlist for DNS-rebinding protection.
-
-    Empty turns the check off, which is what you want behind Cloud Run: the
-    load balancer terminates TLS and the Host is your *.run.app (or custom)
-    domain, so pinning it here just breaks deploys. Set it if you serve the
-    app directly to browsers from a known origin.
-    """
+    """Comma-separated Host allowlist for DNS-rebinding protection. Empty
+    disables the check, which is correct behind Cloud Run."""
 
     # --- Retrieval stack -------------------------------------------------
 
     database_url: str = ""
-    """Postgres connection string (Neon). Empty disables the document tools.
-
-    Use Neon's POOLED connection string: Cloud Run creates a fresh container
-    per cold start, and a pooler keeps that from exhausting Postgres
-    connections. See db.py for the pgbouncer-compatibility flags that requires.
-    """
+    """Neon connection string; empty disables the document tools. Use the
+    pooled endpoint, or Cloud Run cold starts will exhaust connections."""
 
     openai_api_key: str = ""
     """Key for embeddings only — this server never calls a chat model."""
 
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
-    """Must match the vector(N) column in the schema. Changing either one
-    without re-embedding the whole corpus silently corrupts every search."""
+    """Must match the vector(N) column. Changing it without re-embedding the
+    corpus silently corrupts every search."""
 
     tavily_api_key: str = ""
     """Key for web search. Empty disables the web_search tool."""
 
     chunk_tokens: int = 512
-    """Target chunk size. Big enough to carry an argument, small enough that
-    a hit points at something specific."""
+    """Big enough to carry an argument, small enough that a hit is specific."""
 
     chunk_overlap_tokens: int = 64
-    """Overlap so a fact spanning a boundary survives in at least one chunk."""
+    """Overlap so a fact spanning a boundary survives in one whole chunk."""
 
     max_upload_bytes: int = 25 * 1024 * 1024
 
@@ -80,12 +67,8 @@ class Settings(BaseSettings):
 
     @property
     def bearer_token(self) -> str:
-        """The token, minus surrounding whitespace.
-
-        Secret payloads very often end in a newline (anything piped from
-        `openssl rand` does), and clients read them back with `$(...)`, which
-        strips it. Comparing raw would reject every legitimate caller.
-        """
+        """The token without surrounding whitespace. Secret payloads often end
+        in a newline that clients strip on read, so comparing raw rejects them."""
         return self.auth_token.strip()
 
     @property

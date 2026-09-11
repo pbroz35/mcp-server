@@ -1,10 +1,5 @@
-"""Postgres + pgvector access.
-
-The corpus lives in two tables: `documents` (one row per uploaded file or
-fetched page) and `chunks` (the embedded, searchable pieces). Metadata is a
-JSONB column on both, so a caller can filter on arbitrary keys without a
-migration — the point of the whole design is that you can upload a PDF tagged
-`{"company": "NVDA", "form": "10-K", "year": 2025}` and filter on it later.
+"""Postgres + pgvector access: `documents` (one row per file) and `chunks` (the
+embedded pieces), with JSONB metadata so new filter keys need no migration.
 """
 
 import json
@@ -29,8 +24,8 @@ CREATE TABLE IF NOT EXISTS documents (
     title        TEXT NOT NULL,
     source       TEXT,
     content_type TEXT NOT NULL DEFAULT 'application/pdf',
-    -- sha256 of the raw bytes: re-uploading the same file updates the existing
-    -- row instead of silently duplicating every chunk into search results.
+    -- Content hash: re-uploading the same file updates this row rather than
+    -- duplicating every chunk into search results.
     sha256       TEXT NOT NULL UNIQUE,
     page_count   INTEGER,
     metadata     JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -59,12 +54,8 @@ CREATE INDEX IF NOT EXISTS documents_metadata_idx ON documents USING gin (metada
 
 
 async def get_pool() -> asyncpg.Pool:
-    """Lazily create the connection pool.
-
-    Lazy rather than lifespan-managed so the same code path works under stdio,
-    under uvicorn, and in tests. Cloud Run cold-starts a container per burst of
-    traffic, so the pool is deliberately small.
-    """
+    """Lazily create the connection pool, so one code path serves stdio,
+    uvicorn, and tests alike. Kept small because Cloud Run cold-starts often."""
     global _pool
     if _pool is None:
         if not settings.database_url:
@@ -73,10 +64,8 @@ async def get_pool() -> asyncpg.Pool:
             settings.database_url,
             min_size=0,
             max_size=5,
-            # Neon's pooled endpoint runs pgbouncer in transaction mode, where
-            # server-side prepared statements are not safe to reuse across
-            # checkouts. Without this, asyncpg raises DuplicatePreparedStatement
-            # under concurrency — intermittently, which is the worst kind.
+            # Neon's pooler runs pgbouncer in transaction mode, where reusing
+            # prepared statements raises DuplicatePreparedStatement under load.
             statement_cache_size=0,
             command_timeout=30,
         )
@@ -106,11 +95,8 @@ async def init_schema() -> None:
 
 
 def to_vector_literal(embedding: list[float]) -> str:
-    """pgvector's text input format.
-
-    asyncpg has no native codec for the vector type, so values cross the wire
-    as a string and are cast in SQL with `$n::vector`.
-    """
+    """pgvector's text input format. asyncpg has no codec for the vector type,
+    so values cross the wire as strings and are cast with `$n::vector`."""
     return "[" + ",".join(f"{x:.7g}" for x in embedding) + "]"
 
 
@@ -123,12 +109,8 @@ async def upsert_document(
     page_count: int | None,
     metadata: dict[str, Any],
 ) -> tuple[int, bool]:
-    """Insert or update a document by content hash.
-
-    Returns (document_id, is_new). When the same bytes are uploaded again the
-    existing row is reused and its chunks are replaced, so the corpus never
-    accumulates duplicates of the same file under different titles.
-    """
+    """Insert or update a document by content hash, returning (id, is_new).
+    Re-uploading the same bytes reuses the row instead of duplicating it."""
     async with connection() as conn:
         row = await conn.fetchrow(
             """
@@ -147,12 +129,8 @@ async def upsert_document(
 
 
 async def replace_chunks(document_id: int, chunks: list[dict[str, Any]]) -> int:
-    """Atomically swap in a document's chunks.
-
-    Delete-then-insert inside one transaction: a re-upload never leaves the
-    document half-indexed, and concurrent searches see either the old set or
-    the new one, never a mix.
-    """
+    """Atomically swap in a document's chunks. Delete-then-insert in one
+    transaction, so a concurrent search never sees a half-indexed document."""
     async with connection() as conn, conn.transaction():
         await conn.execute("DELETE FROM chunks WHERE document_id = $1", document_id)
         await conn.executemany(
@@ -184,20 +162,13 @@ async def search_chunks(
     document_ids: list[int] | None = None,
     semantic_only: bool = False,
 ) -> list[dict[str, Any]]:
-    """Hybrid search: vector similarity fused with keyword relevance.
+    """Hybrid search fusing vector similarity with keyword relevance.
 
-    Pure vector search misses exact terms (a ticker, a statute number, a proper
-    noun the embedding smooths away); pure keyword search misses paraphrase.
-    Results from both are combined with Reciprocal Rank Fusion, which needs no
-    score normalization between two incomparable scales — it only uses rank.
-
-    `metadata_filter` is applied with the JSONB containment operator, so
-    {"company": "NVDA"} matches any chunk whose document metadata contains that
-    pair, and filtering happens before ranking rather than after.
+    Vectors miss exact terms like tickers and keywords miss paraphrase, so
+    Reciprocal Rank Fusion combines them by rank alone.
     """
     vec = to_vector_literal(embedding)
-    # Over-fetch per arm so fusion has room to reorder; RRF over two top-8 lists
-    # would mostly reproduce the vector ranking.
+    # Over-fetch per arm so fusion has room to reorder.
     candidates = max(limit * 4, 20)
     meta_json = json.dumps(metadata_filter) if metadata_filter else None
 
@@ -229,9 +200,8 @@ async def search_chunks(
     ),
     fused AS (
         SELECT COALESCE(v.id, k.id) AS id,
-               -- RRF with k=60, the value from the original paper. The constant
-               -- damps the influence of the very top ranks so one arm cannot
-               -- dominate the fusion.
+               -- RRF with k=60 (the original paper's constant), which damps the
+               -- top ranks so neither arm dominates.
                COALESCE(1.0 / (60 + v.rank), 0) + COALESCE(1.0 / (60 + k.rank), 0) AS score,
                v.similarity
         FROM vector_hits v
@@ -273,12 +243,8 @@ async def list_documents(
 
 
 async def get_chunk_window(chunk_id: int, before: int = 1, after: int = 1) -> list[dict[str, Any]]:
-    """Fetch a chunk plus its neighbours.
-
-    A search hit is a fragment; an agent citing it usually needs the sentences
-    on either side to quote it fairly. Neighbours come from the same document
-    by ordinal, so this never crosses a document boundary.
-    """
+    """Fetch a chunk plus its neighbours, so a citation can quote fairly.
+    Neighbours come from the same document by ordinal."""
     async with connection() as conn:
         rows = await conn.fetch(
             """

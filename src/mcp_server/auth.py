@@ -1,9 +1,7 @@
 """Shared-secret bearer auth for the HTTP transport.
 
-Cloud Run is deployed with --allow-unauthenticated so that MCP clients (which
-generally cannot mint Google ID tokens) can reach it; this middleware is what
-actually gates access. Health checks stay open so Cloud Run can probe the
-service.
+Cloud Run runs --allow-unauthenticated because MCP clients cannot mint Google
+ID tokens, so this middleware is what actually gates access.
 """
 
 import hmac

@@ -13,8 +13,7 @@ async def test_tools_are_registered():
 
 
 async def test_search_documents_advertises_metadata_filter():
-    """The metadata filter is how an agent narrows a corpus, so it has to reach
-    the model through the schema — not just exist in Python."""
+    """The filter must reach the model through the schema, not just exist."""
     tool = next(t for t in await mcp.list_tools() if t.name == "search_documents")
     assert "metadata_filter" in tool.input_schema["properties"]
 
@@ -27,8 +26,8 @@ def client(monkeypatch):
     from mcp_server import app as app_module
 
     monkeypatch.setattr(app_module.settings, "auth_token", "test-token")
-    # The context manager runs the app lifespan, which starts the MCP session
-    # manager's task group — without it every /mcp request 500s.
+    # The context manager runs the lifespan that starts the session manager's
+    # task group; without it every /mcp request 500s.
     with TestClient(create_app()) as test_client:
         yield test_client
 
@@ -81,8 +80,7 @@ def test_initialize_with_valid_token(client):
 
 
 def test_upload_requires_auth(client):
-    """The upload route must sit behind the same middleware as /mcp — an open
-    ingestion endpoint would let anyone poison the corpus an agent cites."""
+    """An open ingestion endpoint would let anyone poison the cited corpus."""
     response = client.post("/documents", files={"file": ("x.txt", b"hello", "text/plain")})
     assert response.status_code == 401
 
@@ -103,8 +101,7 @@ def test_upload_reports_unconfigured(client):
 def test_clean_text_dehyphenates_across_line_breaks():
     from mcp_server.ingest import clean_text
 
-    # PDF extraction splits words at line ends; left alone, "revenue" is
-    # searchable as neither "rev" nor "enue".
+    # PDF extraction splits words at line ends, making them unsearchable.
     assert "revenue" in clean_text("total rev-\nenue grew")
 
 
@@ -126,8 +123,7 @@ def test_chunk_text_splits_on_paragraphs():
 
 
 def test_chunk_text_splits_oversized_paragraph():
-    """A single huge paragraph (a table, a dense legal block) must still be
-    broken up rather than blowing past the embedding model's limit."""
+    """A huge paragraph must still be broken up, not sent past the token limit."""
     from mcp_server.ingest import chunk_text
 
     chunks = chunk_text("word " * 3000, max_tokens=128, overlap_tokens=16)

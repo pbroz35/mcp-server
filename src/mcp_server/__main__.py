@@ -55,7 +55,7 @@ def main() -> int:
         )
         return 0
 
-    # stdio: logs must go to stderr — stdout is the MCP wire protocol.
+    # stdio: logs go to stderr, because stdout is the MCP wire protocol.
     logging.basicConfig(
         level=settings.log_level.upper(),
         stream=sys.stderr,
