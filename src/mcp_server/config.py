@@ -40,6 +40,44 @@ class Settings(BaseSettings):
     app directly to browsers from a known origin.
     """
 
+    # --- Retrieval stack -------------------------------------------------
+
+    database_url: str = ""
+    """Postgres connection string (Neon). Empty disables the document tools.
+
+    Use Neon's POOLED connection string: Cloud Run creates a fresh container
+    per cold start, and a pooler keeps that from exhausting Postgres
+    connections. See db.py for the pgbouncer-compatibility flags that requires.
+    """
+
+    openai_api_key: str = ""
+    """Key for embeddings only — this server never calls a chat model."""
+
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    """Must match the vector(N) column in the schema. Changing either one
+    without re-embedding the whole corpus silently corrupts every search."""
+
+    tavily_api_key: str = ""
+    """Key for web search. Empty disables the web_search tool."""
+
+    chunk_tokens: int = 512
+    """Target chunk size. Big enough to carry an argument, small enough that
+    a hit points at something specific."""
+
+    chunk_overlap_tokens: int = 64
+    """Overlap so a fact spanning a boundary survives in at least one chunk."""
+
+    max_upload_bytes: int = 25 * 1024 * 1024
+
+    @property
+    def documents_enabled(self) -> bool:
+        return bool(self.database_url and self.openai_api_key)
+
+    @property
+    def web_search_enabled(self) -> bool:
+        return bool(self.tavily_api_key)
+
     @property
     def bearer_token(self) -> str:
         """The token, minus surrounding whitespace.

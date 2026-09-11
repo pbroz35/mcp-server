@@ -2,6 +2,7 @@
 
     python -m mcp_server           # stdio — for local clients (Claude Code, Desktop)
     python -m mcp_server --http    # streamable HTTP — what Cloud Run runs
+    python -m mcp_server --init-db # apply the pgvector schema, then exit
 """
 
 import argparse
@@ -18,9 +19,30 @@ def main() -> int:
         action="store_true",
         help="Serve over streamable HTTP instead of stdio.",
     )
+    parser.add_argument(
+        "--init-db",
+        action="store_true",
+        help="Create the pgvector extension, tables and indexes, then exit. Idempotent.",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=settings.port)
     args = parser.parse_args()
+
+    if args.init_db:
+        import asyncio
+
+        logging.basicConfig(level=settings.log_level.upper(), stream=sys.stderr)
+        from .db import close_pool, init_schema
+
+        async def run() -> None:
+            try:
+                await init_schema()
+            finally:
+                await close_pool()
+
+        asyncio.run(run())
+        print("Schema applied.")
+        return 0
 
     if args.http:
         import uvicorn

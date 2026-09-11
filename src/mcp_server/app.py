@@ -2,7 +2,8 @@
 
     uvicorn mcp_server.app:app --host 0.0.0.0 --port 8080
 
-MCP clients connect to /mcp. /health is unauthenticated, for Cloud Run probes.
+MCP clients connect to /mcp. Documents are uploaded to POST /documents.
+/health is unauthenticated, for Cloud Run probes; everything else needs the token.
 """
 
 import logging
@@ -14,6 +15,7 @@ from starlette.responses import JSONResponse
 from .auth import BearerTokenMiddleware
 from .config import settings
 from .server import mcp
+from .uploads import upload_document
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -26,7 +28,21 @@ logger = logging.getLogger(__name__)
 # returns its own 404 without ever reaching the container.
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_request: Request) -> JSONResponse:
-    return JSONResponse({"status": "ok", "server": settings.server_name})
+    return JSONResponse(
+        {
+            "status": "ok",
+            "server": settings.server_name,
+            # Which capabilities are actually live, so a misconfigured deploy is
+            # visible from the probe instead of only when a tool call fails.
+            "documents": settings.documents_enabled,
+            "web_search": settings.web_search_enabled,
+        }
+    )
+
+
+# Uploads go through the SDK's custom-route hook, which places them on the same
+# Starlette app as /mcp — and therefore behind the same bearer-token middleware.
+mcp.custom_route("/documents", methods=["POST"])(upload_document)
 
 
 def create_app():

@@ -1,18 +1,25 @@
 [project]
 name = "mcp-server"
 version = "0.1.0"
-description = "A general-purpose MCP server, deployable to Cloud Run."
+description = "MCP server for a research agent: web search and semantic document retrieval."
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=2.1,<3",
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "uvicorn[standard]>=0.30",
+    # Retrieval stack
+    "asyncpg>=0.30",       # Postgres driver; pgvector values go over as strings
+    "openai>=1.60",        # embeddings only — this server never calls an LLM
+    "pypdf>=5.1",          # pure-python PDF text extraction, no system deps
+    "tiktoken>=0.8",       # token-accurate chunking for the embedding model
+    "httpx>=0.27",         # Tavily calls (also an mcp dependency)
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-httpx>=0.30",
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
     "ruff>=0.5",

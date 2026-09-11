@@ -1,9 +1,23 @@
 # mcp-server
 
-A general-purpose [MCP](https://modelcontextprotocol.io) server skeleton: one
-placeholder tool, resource, and prompt, both transports wired up, and a
-one-command deploy to Cloud Run. Nothing domain-specific yet — replace the
-contents of `src/mcp_server/tools/` when you know what this is for.
+The tool layer for a research agent, exposed over
+[MCP](https://modelcontextprotocol.io): live web search, and semantic search
+over a corpus of documents you upload. Deploys to Cloud Run with one command.
+
+An agent connected to this server implements no integrations of its own —
+every capability arrives over MCP, so the tool layer can change without
+touching the agent.
+
+| Tool | What it does |
+| --- | --- |
+| `web_search` | Live web search via Tavily, returning extracted passages, not just links |
+| `search_documents` | Hybrid semantic + keyword search over uploaded documents, filterable by metadata |
+| `get_context` | Expands a search hit with the surrounding text, for fair quotation |
+| `list_documents` | What is in the corpus, and which metadata keys exist to filter on |
+
+Documents are uploaded over HTTP (`POST /documents`), not through a tool — a
+PDF has no business passing through the model's context on its way into a
+database.
 
 Built on the Python SDK's `MCPServer` (`mcp` 2.x — the class was called
 `FastMCP` in 1.x).
@@ -12,16 +26,62 @@ Built on the Python SDK's `MCPServer` (`mcp` 2.x — the class was called
 
 ```
 src/mcp_server/
-  __main__.py      CLI: stdio (default) or --http
-  app.py           ASGI app for Cloud Run: /mcp + /health + auth middleware
+  __main__.py      CLI: stdio (default), --http, or --init-db
+  app.py           ASGI app: /mcp + /documents + /health + auth middleware
   server.py        the MCPServer instance
   auth.py          shared-secret bearer check
   config.py        env-var settings
+  db.py            pgvector schema, connection pool, hybrid search SQL
+  ingest.py        PDF extraction, cleaning, chunking, embedding
+  uploads.py       POST /documents
   tools/
     __init__.py    register_all() — the list of capability modules
-    example.py     placeholder tool + resource + prompt
+    web.py         web_search
+    documents.py   search_documents, get_context, list_documents
 deploy.sh          Cloud Run deploy (creates the secret on first run)
 ```
+
+## How retrieval works
+
+Uploading a PDF extracts text per page, de-hyphenates and unwraps it, splits it
+into ~512-token chunks on paragraph boundaries, embeds each chunk, and stores
+them in Postgres with `pgvector`.
+
+Search runs two queries and fuses them:
+
+```
+query ──┬─► embed ──► vector similarity (HNSW, cosine)  ──┐
+        │                                                 ├─► Reciprocal Rank Fusion ──► top k
+        └─► websearch_to_tsquery ──► keyword rank (GIN) ──┘
+```
+
+Two arms because each fails differently: vector search misses exact tokens (a
+ticker, a case number, a name the embedding smooths away), and keyword search
+misses paraphrase. RRF combines them by rank alone, so the two incomparable
+score scales never need normalizing.
+
+Metadata filtering happens *before* ranking, via JSONB containment. Upload a
+filing tagged `{"company": "NVDA", "form": "10-K", "year": 2025}` and later
+search only within it — no schema migration to add a new key.
+
+## Uploading documents
+
+```bash
+curl -X POST https://<service-url>/documents \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@nvidia-10k.pdf" \
+  -F "title=NVIDIA FY2025 10-K" \
+  -F "source=https://www.sec.gov/..." \
+  -F 'metadata={"company":"NVDA","form":"10-K","year":2025}'
+```
+
+Returns the document id and chunk count. Re-uploading identical bytes replaces
+the existing document's chunks rather than duplicating them — the hash of the
+file is the identity, so the corpus cannot silently accumulate the same PDF
+three times under three titles.
+
+Supported: PDF, plain text, Markdown. Scanned PDFs with no text layer are
+rejected with a clear error; this server does not do OCR.
 
 ## Local development
 
@@ -87,6 +147,11 @@ random 32-byte token on first run, grants the runtime service account access to
 it, and deploys from source. It prints the service URL and the command to read
 the token back.
 
+The database and API keys are **not** wired into the deploy script yet — add
+them as secrets and pass them with `--set-secrets` when you deploy, or the
+deployed instance runs with document search and web search disabled. `GET
+/health` reports which capabilities are actually live.
+
 ### Why `--allow-unauthenticated`
 
 Cloud Run IAM wants a Google-signed ID token on every request, which MCP
@@ -113,11 +178,42 @@ Scale-to-zero with `--min-instances=0`, so an idle server costs nothing beyond
 the Artifact Registry image. The tradeoff is a cold start (a few seconds) on
 the first call after idling; raise `--min-instances` if that gets annoying.
 
+## Setup
+
+Two external services, both with usable free tiers:
+
+1. **[Neon](https://neon.tech)** — Postgres with `pgvector`. Create a project,
+   then copy the **pooled** connection string (the host contains `-pooler`).
+   Neon scales to zero like Cloud Run, so an idle corpus costs nothing.
+2. **[OpenAI](https://platform.openai.com)** — embeddings only; this server
+   never calls a chat model. `text-embedding-3-small` is about $0.02 per
+   million tokens, so a few hundred PDFs cost cents.
+3. **[Tavily](https://tavily.com)** — web search. Optional; without a key the
+   `web_search` tool reports itself unavailable and the rest still works.
+
+Then create the schema:
+
+```bash
+make install
+cp .env.example .env   # fill in the three keys
+.venv/bin/python -m mcp_server --init-db
+```
+
+`--init-db` is idempotent, so it is safe on every deploy.
+
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MCP_AUTH_TOKEN` | *(empty)* | Shared secret; empty disables auth |
+| `MCP_DATABASE_URL` | *(empty)* | Neon pooled connection string; empty disables document tools |
+| `MCP_OPENAI_API_KEY` | *(empty)* | Embeddings only |
+| `MCP_TAVILY_API_KEY` | *(empty)* | Web search; empty disables `web_search` |
+| `MCP_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
+| `MCP_EMBEDDING_DIMENSIONS` | `1536` | Must match the `vector(N)` column |
+| `MCP_CHUNK_TOKENS` | `512` | Target chunk size |
+| `MCP_CHUNK_OVERLAP_TOKENS` | `64` | Overlap between chunks |
+| `MCP_MAX_UPLOAD_BYTES` | `26214400` | Upload size cap (25 MB) |
 | `MCP_SERVER_NAME` | `mcp-server` | Name advertised to clients |
 | `MCP_LOG_LEVEL` | `info` | `debug`/`info`/`warning`/`error` |
 | `MCP_ALLOWED_HOSTS` | *(empty)* | Comma-separated Host allowlist; empty disables DNS-rebinding checks (correct behind Cloud Run) |
