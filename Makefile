@@ -1,22 +1,27 @@
-.PHONY: install dev test lint run serve docker deploy
+.PHONY: install test lint mcp backend frontend dev clean
 
 install:
-	python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+	cd services/mcp-server && python3 -m venv .venv && .venv/bin/pip install -q -e ".[dev]"
+	cd services/backend && python3 -m venv .venv && .venv/bin/pip install -q -e ".[dev]"
+	cd services/frontend && npm install
 
 test:
-	.venv/bin/pytest -q
+	cd services/mcp-server && .venv/bin/pytest -q
+	cd services/backend && .venv/bin/pytest -q
 
 lint:
-	.venv/bin/ruff check src tests
+	cd services/mcp-server && .venv/bin/ruff check src tests
+	cd services/backend && .venv/bin/ruff check src tests
+	cd services/frontend && npx tsc --noEmit
 
-run:            ## stdio transport (what a local MCP client speaks)
-	.venv/bin/python -m mcp_server
+mcp:        ## MCP server on :8080
+	cd services/mcp-server && .venv/bin/python -m mcp_server --http --port 8080
 
-serve:          ## HTTP transport on :8080
-	.venv/bin/python -m mcp_server --http
+backend:    ## agent service on :8000
+	cd services/backend && .venv/bin/python -m backend
 
-docker:
-	docker build -t mcp-server . && docker run --rm -p 8080:8080 --env-file .env mcp-server
+frontend:   ## UI on :3000
+	cd services/frontend && npm run dev
 
-deploy:
-	./deploy.sh
+clean:
+	rm -rf services/*/.venv services/frontend/node_modules services/frontend/.next
