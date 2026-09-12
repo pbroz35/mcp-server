@@ -85,12 +85,30 @@ surprising:
   These talk over the wire protocol, not the library, and they negotiate fine.
   This was tested end to end: the 1.x client discovers all four tools from the
   2.x server, with schemas intact, and tool calls round-trip.
-- `anthropic` 1.5.0 via `langchain-anthropic`; `ChatAnthropic` exposes
-  `thinking` and `output_config`, so adaptive thinking and effort are reachable.
+- OpenRouter serves embeddings as well as chat, despite listing no embedding
+  models in its catalogue. Tested: `openai/text-embedding-3-small` returns 1536
+  dims through `openrouter.ai/api/v1`.
 - Every dependency carries an upper bound at the major it was verified against.
 
 ## Model configuration
 
-`claude-opus-5` with adaptive thinking. Note that `temperature` is removed on
-this model and returns a 400, so it is never set; `budget_tokens` is likewise
-gone, replaced by `output_config.effort`.
+The agent talks to **OpenRouter**, which speaks the OpenAI API, so the provider
+is one env var. The default is `qwen/qwen3.7-flash` — $0.03 / $0.13 per million
+tokens with a 1M context, roughly a tenth of a cent per research turn.
+
+The only hard requirement is **tool calling**: a model without it cannot reach
+any MCP tool and will quietly answer from memory instead. Alternatives, all
+tool-capable:
+
+| Model | $/Mtok in | out | Context |
+| --- | --- | --- | --- |
+| `mistralai/mistral-nemo` | 0.019 | 0.03 | 131K |
+| `qwen/qwen3.7-flash` (default) | 0.030 | 0.13 | 1M |
+| `deepseek/deepseek-v4-flash-0731` | 0.040 | 0.08 | 1.3M |
+| `openai/gpt-oss-120b` | 0.037 | 0.17 | 131K |
+| `openai/gpt-5-mini` | 0.250 | 2.00 | 400K |
+| `anthropic/claude-haiku-4.5` | 1.000 | 5.00 | 200K |
+
+**Embeddings go through OpenRouter too** — `openai/text-embedding-3-small`
+against `https://openrouter.ai/api/v1`, verified returning 1536 dims. One key
+covers the agent and the vector search.

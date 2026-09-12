@@ -53,6 +53,7 @@ async def health() -> JSONResponse:
         {
             "status": "ok",
             "model": settings.model,
+            "base_url": settings.base_url,
             "mcp_url": settings.mcp_url,
             # Surface configuration in the probe, so a bad deploy is visible here
             # rather than in a failing run.
@@ -90,7 +91,7 @@ async def run_agent(input_data: RunAgentInput, request: Request):
             yield encoder.encode(
                 RunErrorEvent(
                     type=EventType.RUN_ERROR,
-                    message="AGENT_ANTHROPIC_API_KEY is not set.",
+                    message="AGENT_OPENROUTER_API_KEY is not set.",
                 )
             )
             return

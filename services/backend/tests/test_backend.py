@@ -142,7 +142,7 @@ def client():
 def test_health_reports_configuration(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"
-    assert body["model"] == "claude-opus-5"
+    assert "/" in body["model"]  # OpenRouter ids are vendor/model
     assert body["configured"] is False  # no key in tests
 
 
@@ -174,4 +174,4 @@ def test_agent_endpoint_reports_missing_key_as_run_error(client):
     )
     assert response.status_code == 200
     assert "RUN_ERROR" in response.text
-    assert "AGENT_ANTHROPIC_API_KEY" in response.text
+    assert "AGENT_OPENROUTER_API_KEY" in response.text

@@ -39,7 +39,10 @@ def _get_client() -> AsyncOpenAI:
     if _client is None:
         if not settings.openai_api_key:
             raise RuntimeError("MCP_OPENAI_API_KEY is not set — embeddings are unavailable.")
-        _client = AsyncOpenAI(api_key=settings.openai_api_key)
+        _client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url or None,
+        )
     return _client
 
 

@@ -7,7 +7,7 @@ dependencies = [
     # Upper bounds at the majors this code was verified against.
     "deepagents>=0.7.13,<0.8",
     "langchain-mcp-adapters>=0.3.2,<0.4",
-    "langchain-anthropic>=1.7.2,<2",
+    "langchain-openai>=1.6.2,<2",
     "langgraph>=1.2.11,<2",
     "ag-ui-protocol>=0.1.22,<0.2",
     "fastapi>=0.141,<0.142",

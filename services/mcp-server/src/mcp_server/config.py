@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     """Key for embeddings only — this server never calls a chat model."""
 
+    openai_base_url: str = ""
+    """Override the embeddings endpoint. Empty means OpenAI directly; set it to
+    another OpenAI-compatible gateway to use one key for everything."""
+
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
     """Must match the vector(N) column. Changing it without re-embedding the

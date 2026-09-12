@@ -8,9 +8,9 @@ redeploying this service.
 import logging
 
 from deepagents import create_deep_agent
-from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_openai import ChatOpenAI
 
 from .config import settings
 
@@ -71,19 +71,23 @@ async def load_tools() -> list[BaseTool]:
     return tools
 
 
-def build_model() -> ChatAnthropic:
-    """The chat model.
+def build_model() -> ChatOpenAI:
+    """The chat model, reached through OpenRouter's OpenAI-compatible API.
 
-    No temperature: it is removed on this model and returns a 400. Adaptive
-    thinking replaces the old fixed token budget.
+    The model must support tool calling; without it the agent has no way to
+    reach any MCP tool and will simply answer from memory.
     """
-    return ChatAnthropic(
+    return ChatOpenAI(
         model=settings.model,
+        base_url=settings.base_url,
+        api_key=settings.openrouter_api_key,
         max_tokens=settings.max_tokens,
-        thinking={"type": "adaptive"},
-        output_config={"effort": settings.effort},
-        api_key=settings.anthropic_api_key,
+        temperature=settings.temperature,
         streaming=True,
+        default_headers={
+            "HTTP-Referer": settings.app_url,
+            "X-Title": settings.app_title,
+        },
     )
 
 
