@@ -38,8 +38,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     ordinal     INTEGER NOT NULL,
     page        INTEGER,
     text        TEXT NOT NULL,
-    embedding   vector({dims}) NOT NULL,
-    metadata    JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+    embedding   vector(:DIMS) NOT NULL,
+    metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- Generated, so keyword search can never drift out of sync with the text.
     tsv         tsvector GENERATED ALWAYS AS (to_tsvector('english', text)) STORED,
     UNIQUE (document_id, ordinal)
@@ -60,8 +60,16 @@ async def get_pool() -> asyncpg.Pool:
     if _pool is None:
         if not settings.database_url:
             raise RuntimeError("MCP_DATABASE_URL is not set — document tools are disabled.")
+        async def init_connection(conn: asyncpg.Connection) -> None:
+            # asyncpg hands back JSONB as a raw string; without this codec every
+            # metadata field arrives as text and fails model validation.
+            await conn.set_type_codec(
+                "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+            )
+
         _pool = await asyncpg.create_pool(
             settings.database_url,
+            init=init_connection,
             min_size=0,
             max_size=5,
             # Neon's pooler runs pgbouncer in transaction mode, where reusing
@@ -90,7 +98,8 @@ async def connection():
 async def init_schema() -> None:
     """Apply the schema. Idempotent, so it is safe to run on every deploy."""
     async with connection() as conn:
-        await conn.execute(SCHEMA_SQL.format(dims=settings.embedding_dimensions))
+        # Plain replace, not str.format: SQL is full of braces.
+        await conn.execute(SCHEMA_SQL.replace(":DIMS", str(settings.embedding_dimensions)))
     logger.info("schema applied")
 
 

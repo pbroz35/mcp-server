@@ -76,6 +76,23 @@ Manager token, and you are running a local agent against production tools.
 4. The UI renders each call as it opens — which tool, what arguments, how long it
    took, what came back — so the agent's reasoning is visible rather than implied.
 
+## Tests
+
+```bash
+make test          # hermetic: no network, no database
+```
+
+The mcp-server also has an integration suite that runs against a real
+Postgres, skipped unless credentials are present:
+
+```bash
+cd services/mcp-server && .venv/bin/pytest tests/test_integration.py
+```
+
+Those exist because one class of bug is invisible without a database — JSONB
+columns come back from asyncpg as strings unless a codec is registered, which
+no amount of mocking would reveal.
+
 ## Verified compatibility
 
 The three services do not share a dependency set, and one pairing is genuinely
